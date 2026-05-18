@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>客诉管理系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      #reportContent { display: block !important; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- 顶部导航 -->
+  <header class="bg-white shadow-sm no-print">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <h1 class="text-2xl font-bold text-gray-800">客诉管理系统</h1>
+      <div class="flex gap-3">
+        <button onclick="showReport()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">生成周报</button>
+        <button onclick="openForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ 新建客诉</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 统计概览 -->
+  <div class="max-w-7xl mx-auto px-4 py-6">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-blue-500">
+        <div class="text-gray-500 text-sm">总客诉</div>
+        <div id="statTotal" class="text-3xl font-bold text-gray-800">0</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-yellow-500">
+        <div class="text-gray-500 text-sm">待处理</div>
+        <div id="statPending" class="text-3xl font-bold text-gray-800">0</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-red-500">
+        <div class="text-gray-500 text-sm">严重(critical)</div>
+        <div id="statCritical" class="text-3xl font-bold text-red-600">0</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-orange-500">
+        <div class="text-gray-500 text-sm">本周到期</div>
+        <div id="statWeek" class="text-3xl font-bold text-orange-600">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体内容 -->
+  <div class="max-w-7xl mx-auto px-4 pb-8 flex gap-6">
+    <!-- 筛选栏 -->
+    <aside class="w-56 shrink-0 no-print">
+      <div class="bg-white rounded-xl shadow-sm p-4 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">状态</label>
+          <select id="filterStatus" onchange="renderList()" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">全部</option>
+            <option value="pending">待处理</option>
+            <option value="in_progress">处理中</option>
+            <option value="resolved">已解决</option>
+            <option value="closed">已关闭</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">严重程度</label>
+          <select id="filterSeverity" onchange="renderList()" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">全部</option>
+            <option value="critical">严重</option>
+            <option value="high">高</option>
+            <option value="medium">中</option>
+            <option value="low">低</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">跟进人</label>
+          <select id="filterAssignee" onchange="renderList()" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">全部</option>
+            <option value="张伟">张伟</option>
+            <option value="李娜">李娜</option>
+            <option value="王强">王强</option>
+          </select>
+        </div>
+        <button onclick="resetFilters()" class="w-full px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">重置筛选</button>
+      </div>
+    </aside>
+
+    <!-- 客诉列表 -->
+    <main class="flex-1">
+      <div id="alertBanner" class="hidden bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-red-600 text-xl">⚠️</span>
+            <span class="font-medium text-red-800">今日需跟进 <span id="alertCount">0</span> 条客诉</span>
+          </div>
+          <button onclick="toggleAlertList()" class="text-sm text-red-600 hover:underline">查看详情</button>
+        </div>
+        <div id="alertList" class="hidden mt-3 space-y-2"></div>
+      </div>
+
+      <div id="caseList" class="space-y-3"></div>
+      <div id="emptyState" class="hidden text-center py-12 text-gray-400">
+        <div class="text-5xl mb-4">📋</div>
+        <p class="text-lg">暂无客诉数据</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- 新建/编辑表单弹窗 -->
+  <div id="formModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+      <div class="px-6 py-4 border-b flex items-center justify-between">
+        <h2 id="formTitle" class="text-xl font-bold">新建客诉</h2>
+        <button onclick="closeForm()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="caseForm" class="p-6 space-y-4">
+        <input type="hidden" id="caseId">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">客户名 *</label>
+            <input type="text" id="customer" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">跟进人 *</label>
+            <select id="assignee" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <option value="">请选择</option>
+              <option value="张伟">张伟</option>
+              <option value="李娜">李娜</option>
+              <option value="王强">王强</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">问题类型 *</label>
+            <select id="type" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <option value="">请选择</option>
+              <option value="网络故障">网络故障</option>
+              <option value="账户问题">账户问题</option>
+              <option value="账单异议">账单异议</option>
+              <option value="功能咨询">功能咨询</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">严重程度 *</label>
+            <select id="severity" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <option value="">请选择</option>
+              <option value="critical">严重</option>
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">解决期限 *</label>
+            <input type="date" id="deadline" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+            <select id="status" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <option value="pending">待处理</option>
+              <option value="in_progress">处理中</option>
+              <option value="resolved">已解决</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+          <textarea id="remark" rows="2" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">保存</button>
+          <button type="button" onclick="closeForm()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 周报弹窗 -->
+  <div id="reportModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-auto">
+      <div class="px-6 py-4 border-b flex items-center justify-between no-print">
+        <h2 class="text-xl font-bold">客诉周报</h2>
+        <button onclick="closeReport()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <div id="reportContent" class="p-6">
+        <div id="reportData"></div>
+      </div>
+      <div class="px-6 py-4 border-t flex gap-3 no-print">
+        <button onclick="window.print()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">打印/导出PDF</button>
+        <button onclick="closeReport()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    const STORAGE_KEY = 'caseManagementData';
+    let cases = [];
+    let editingId = null;
+
+    function loadData() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        cases = JSON.parse(stored);
+      } else {
+        cases = generateMockData();
+        saveData();
+      }
+    }
+
+    function saveData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cases));
+    }
+
+    function formatDate(dateStr) {
+      return dateStr.replace(/-/g, '/');
+    }
+
+    function getSeverityClass(severity) {
+      const map = {
+        critical: 'bg-red-100 text-red-800 border-red-200',
+        high: 'bg-orange-100 text-orange-800 border-orange-200',
+        medium: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        low: 'bg-green-100 text-green-800 border-green-200'
+      };
+      return map[severity] || '';
+    }
+
+    function getSeverityLabel(severity) {
+      const map = { critical: '严重', high: '高', medium: '中', low: '低' };
+      return map[severity] || severity;
+    }
+
+    function getStatusLabel(status) {
+      const map = { pending: '待处理', in_progress: '处理中', resolved: '已解决', closed: '已关闭' };
+      return map[status] || status;
+    }
+
+    function getStatusClass(status) {
+      const map = {
+        pending: 'bg-gray-100 text-gray-600',
+        in_progress: 'bg-blue-100 text-blue-700',
+        resolved: 'bg-green-100 text-green-700',
+        closed: 'bg-gray-200 text-gray-500'
+      };
+      return map[status] || '';
+    }
+
+    function isOverdue(c) {
+      return c.deadline && c.deadline < getTodayStr() && !['resolved', 'closed'].includes(c.status);
+    }
+
+    function isDueToday(c) {
+      return c.deadline === getTodayStr() && !['resolved', 'closed'].includes(c.status);
+    }
+
+    function getTodayStr() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function getWeekRange() {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const diffToLastThu = dayOfWeek === 5 ? 0 : (dayOfWeek === 6 ? -1 : (5 - dayOfWeek + 7) % 7);
+      const lastThu = new Date(now);
+      lastThu.setDate(now.getDate() - diffToLastThu - 7);
+      const thisThu = new Date(lastThu);
+      thisThu.setDate(lastThu.getDate() + 6);
+      const fmt = d => d.toISOString().split('T')[0];
+      return { start: fmt(lastThu), end: fmt(thisThu) };
+    }
+
+    function updateStats() {
+      document.getElementById('statTotal').textContent = cases.length;
+      document.getElementById('statPending').textContent = cases.filter(c => c.status === 'pending').length;
+
+      const today = getTodayStr();
+      const weekEnd = new Date();
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+      document.getElementById('statCritical').textContent = cases.filter(c => c.severity === 'critical' && !['resolved', 'closed'].includes(c.status)).length;
+      document.getElementById('statWeek').textContent = cases.filter(c => c.deadline >= today && c.deadline <= weekEndStr && !['resolved', 'closed'].includes(c.status)).length;
+    }
+
+    function checkTodayAlerts() {
+      const today = getTodayStr();
+      const urgent = cases.filter(c => {
+        return (c.deadline === today || (c.deadline < today && !['resolved', 'closed'].includes(c.status))) &&
+               (c.severity === 'critical' || c.severity === 'high');
+      });
+
+      if (urgent.length > 0) {
+        document.getElementById('alertCount').textContent = urgent.length;
+        document.getElementById('alertBanner').classList.remove('hidden');
+        document.getElementById('alertList').innerHTML = urgent.map(c => `
+          <div class="bg-white rounded-lg p-3 flex items-center justify-between">
+            <div>
+              <span class="font-medium">${c.customer}</span>
+              <span class="text-sm text-gray-500 ml-2">${c.type}</span>
+              <span class="ml-2 text-xs px-2 py-0.5 rounded ${getSeverityClass(c.severity)}">${getSeverityLabel(c.severity)}</span>
+            </div>
+            <div class="text-sm text-gray-400">${c.assignee}</div>
+          </div>
+        `).join('');
+      } else {
+        document.getElementById('alertBanner').classList.add('hidden');
+      }
+    }
+
+    function toggleAlertList() {
+      const list = document.getElementById('alertList');
+      list.classList.toggle('hidden');
+    }
+
+    function renderList() {
+      const statusFilter = document.getElementById('filterStatus').value;
+      const severityFilter = document.getElementById('filterSeverity').value;
+      const assigneeFilter = document.getElementById('filterAssignee').value;
+
+      const filtered = cases.filter(c => {
+        if (statusFilter && c.status !== statusFilter) return false;
+        if (severityFilter && c.severity !== severityFilter) return false;
+        if (assigneeFilter && c.assignee !== assigneeFilter) return false;
+        return true;
+      });
+
+      const listEl = document.getElementById('caseList');
+      const emptyEl = document.getElementById('emptyState');
+
+      if (filtered.length === 0) {
+        listEl.classList.add('hidden');
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      emptyEl.classList.add('hidden');
+      listEl.classList.remove('hidden');
+      listEl.innerHTML = filtered.map(c => `
+        <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition ${isOverdue(c) ? 'border-l-4 border-red-500' : ''}">
+          <div class="flex items-start justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="font-semibold text-lg">${c.customer}</span>
+                <span class="text-xs px-2 py-0.5 rounded border ${getSeverityClass(c.severity)}">${getSeverityLabel(c.severity)}</span>
+                <span class="text-xs px-2 py-0.5 rounded ${getStatusClass(c.status)}">${getStatusLabel(c.status)}</span>
+              </div>
+              <div class="text-sm text-gray-500 space-x-4">
+                <span>📋 ${c.type}</span>
+                <span>👤 ${c.assignee}</span>
+                <span>📅 ${formatDate(c.deadline)}</span>
+              </div>
+              ${c.remark ? `<div class="mt-2 text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">${c.remark}</div>` : ''}
+            </div>
+            <div class="flex gap-2 ml-4">
+              <button onclick="editCase('${c.id}')" class="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded">编辑</button>
+              <button onclick="deleteCase('${c.id}')" class="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded">删除</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function resetFilters() {
+      document.getElementById('filterStatus').value = '';
+      document.getElementById('filterSeverity').value = '';
+      document.getElementById('filterAssignee').value = '';
+      renderList();
+    }
+
+    function openForm(id = null) {
+      editingId = id;
+      document.getElementById('formTitle').textContent = id ? '编辑客诉' : '新建客诉';
+      document.getElementById('caseForm').reset();
+      document.getElementById('caseId').value = '';
+
+      if (id) {
+        const c = cases.find(x => x.id === id);
+        if (c) {
+          document.getElementById('caseId').value = c.id;
+          document.getElementById('customer').value = c.customer;
+          document.getElementById('assignee').value = c.assignee;
+          document.getElementById('type').value = c.type;
+          document.getElementById('severity').value = c.severity;
+          document.getElementById('deadline').value = c.deadline;
+          document.getElementById('status').value = c.status;
+          document.getElementById('remark').value = c.remark || '';
+        }
+      }
+
+      document.getElementById('formModal').classList.remove('hidden');
+      document.getElementById('formModal').classList.add('flex');
+    }
+
+    function closeForm() {
+      document.getElementById('formModal').classList.add('hidden');
+      document.getElementById('formModal').classList.remove('flex');
+      editingId = null;
+    }
+
+    function editCase(id) {
+      openForm(id);
+    }
+
+    function deleteCase(id) {
+      if (confirm('确定删除这条客诉吗？')) {
+        cases = cases.filter(c => c.id !== id);
+        saveData();
+        renderList();
+        updateStats();
+      }
+    }
+
+    document.getElementById('caseForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('caseId').value;
+      const now = new Date().toISOString();
+
+      const data = {
+        customer: document.getElementById('customer').value,
+        assignee: document.getElementById('assignee').value,
+        type: document.getElementById('type').value,
+        severity: document.getElementById('severity').value,
+        deadline: document.getElementById('deadline').value,
+        status: document.getElementById('status').value,
+        remark: document.getElementById('remark').value,
+        updatedAt: now
+      };
+
+      if (id) {
+        const idx = cases.findIndex(c => c.id === id);
+        if (idx !== -1) {
+          cases[idx] = { ...cases[idx], ...data };
+        }
+      } else {
+        cases.unshift({
+          id: 'case_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+          createdAt: now,
+          ...data
+        });
+      }
+
+      saveData();
+      closeForm();
+      renderList();
+      updateStats();
+    });
+
+    function showReport() {
+      const { start, end } = getWeekRange();
+      const weekCases = cases.filter(c => {
+        const created = c.createdAt.split('T')[0];
+        return created >= start && created <= end;
+      });
+
+      const total = weekCases.length;
+      const resolved = weekCases.filter(c => c.status === 'resolved' || c.status === 'closed').length;
+      const bySeverity = {
+        critical: weekCases.filter(c => c.severity === 'critical').length,
+        high: weekCases.filter(c => c.severity === 'high').length,
+        medium: weekCases.filter(c => c.severity === 'medium').length,
+        low: weekCases.filter(c => c.severity === 'low').length
+      };
+      const byAssignee = {};
+      ['张伟', '李娜', '王强'].forEach(name => {
+        byAssignee[name] = weekCases.filter(c => c.assignee === name).length;
+      });
+
+      const today = new Date();
+      const reportDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+
+      document.getElementById('reportData').innerHTML = `
+        <div class="space-y-6">
+          <div class="text-center border-b pb-4">
+            <h3 class="text-2xl font-bold">客诉管理周报</h3>
+            <p class="text-gray-500 mt-1">统计周期：${formatDate(start)} 至 ${formatDate(end)}</p>
+            <p class="text-gray-400 text-sm">生成时间：${reportDate}</p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4">
+            <div class="bg-blue-50 rounded-xl p-4 text-center">
+              <div class="text-4xl font-bold text-blue-600">${total}</div>
+              <div class="text-sm text-gray-500 mt-1">本周新增</div>
+            </div>
+            <div class="bg-green-50 rounded-xl p-4 text-center">
+              <div class="text-4xl font-bold text-green-600">${resolved}</div>
+              <div class="text-sm text-gray-500 mt-1">已解决</div>
+            </div>
+            <div class="bg-orange-50 rounded-xl p-4 text-center">
+              <div class="text-4xl font-bold text-orange-600">${total - resolved}</div>
+              <div class="text-sm text-gray-500 mt-1">处理中</div>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="font-bold text-gray-800 mb-3">严重程度分布</h4>
+            <div class="grid grid-cols-4 gap-3">
+              <div class="bg-red-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-red-600">${bySeverity.critical}</div>
+                <div class="text-xs text-gray-500">严重</div>
+              </div>
+              <div class="bg-orange-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-orange-600">${bySeverity.high}</div>
+                <div class="text-xs text-gray-500">高</div>
+              </div>
+              <div class="bg-yellow-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-yellow-600">${bySeverity.medium}</div>
+                <div class="text-xs text-gray-500">中</div>
+              </div>
+              <div class="bg-green-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-green-600">${bySeverity.low}</div>
+                <div class="text-xs text-gray-500">低</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="font-bold text-gray-800 mb-3">跟进人工作量</h4>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="bg-gray-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-gray-700">${byAssignee['张伟']}</div>
+                <div class="text-sm text-gray-500">张伟</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-gray-700">${byAssignee['李娜']}</div>
+                <div class="text-sm text-gray-500">李娜</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-gray-700">${byAssignee['王强']}</div>
+                <div class="text-sm text-gray-500">王强</div>
+              </div>
+            </div>
+          </div>
+
+          ${weekCases.length > 0 ? `
+          <div>
+            <h4 class="font-bold text-gray-800 mb-3">本周客诉详情</h4>
+            <table class="w-full text-sm border">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-3 py-2 text-left">客户</th>
+                  <th class="px-3 py-2 text-left">类型</th>
+                  <th class="px-3 py-2 text-left">严重</th>
+                  <th class="px-3 py-2 text-left">跟进人</th>
+                  <th class="px-3 py-2 text-left">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${weekCases.map(c => `
+                  <tr class="border-t">
+                    <td class="px-3 py-2">${c.customer}</td>
+                    <td class="px-3 py-2">${c.type}</td>
+                    <td class="px-3 py-2">${getSeverityLabel(c.severity)}</td>
+                    <td class="px-3 py-2">${c.assignee}</td>
+                    <td class="px-3 py-2">${getStatusLabel(c.status)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : '<div class="text-center text-gray-400 py-8">本周暂无新增客诉</div>'}
+        </div>
+      `;
+
+      document.getElementById('reportModal').classList.remove('hidden');
+      document.getElementById('reportModal').classList.add('flex');
+    }
+
+    function closeReport() {
+      document.getElementById('reportModal').classList.add('hidden');
+      document.getElementById('reportModal').classList.remove('flex');
+    }
+
+    // 初始化
+    loadData();
+    renderList();
+    updateStats();
+    checkTodayAlerts();
+
+    // 每小时检测一次提醒
+    setInterval(checkTodayAlerts, 3600000);
+
+    // 请求通知权限
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  </script>
+</body>
+</html>
