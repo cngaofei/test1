@@ -10,11 +10,35 @@
       .no-print { display: none !important; }
       #reportContent { display: block !important; }
     }
+    .timeline-line {
+      position: absolute;
+      left: 15px;
+      top: 32px;
+      bottom: 0;
+      width: 2px;
+      background: #e5e7eb;
+    }
+    .timeline-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #3b82f6;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #3b82f6;
+      flex-shrink: 0;
+    }
+    .sidebar-enter {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100%); }
+      to { transform: translateX(0); }
+    }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
   <!-- 顶部导航 -->
-  <header class="bg-white shadow-sm no-print">
+  <header class="bg-white shadow-sm no-print sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
       <h1 class="text-2xl font-bold text-gray-800">客诉管理系统</h1>
       <div class="flex gap-3">
@@ -179,6 +203,36 @@
     </div>
   </div>
 
+  <!-- 客诉详情侧边栏 -->
+  <div id="detailSidebar" class="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 sidebar-enter flex flex-col hidden">
+    <div class="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
+      <div>
+        <h2 id="detailTitle" class="text-xl font-bold">客诉详情</h2>
+        <p id="detailMeta" class="text-sm text-gray-500 mt-1"></p>
+      </div>
+      <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+    <div class="flex-1 overflow-auto p-6">
+      <!-- 基本信息 -->
+      <div id="detailInfo" class="mb-6"></div>
+      <!-- 跟进时间线 -->
+      <div class="border-t pt-4">
+        <h3 class="font-bold text-gray-700 mb-4">跟进记录 <span id="logCount" class="text-gray-400 font-normal text-sm"></span></h3>
+        <div id="logList" class="space-y-4"></div>
+        <div id="logEmpty" class="hidden text-center text-gray-400 py-6">暂无跟进记录</div>
+      </div>
+    </div>
+    <!-- 追加跟进 -->
+    <div class="border-t p-4 bg-gray-50">
+      <h4 class="font-medium text-gray-700 mb-2">追加跟进记录</h4>
+      <textarea id="newLogContent" rows="3" placeholder="输入本次跟进内容..." class="w-full border rounded-lg px-3 py-2 text-sm mb-2 focus:ring-2 focus:ring-blue-500"></textarea>
+      <div class="flex gap-2">
+        <button onclick="submitLog()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">保存记录</button>
+        <button onclick="closeDetail()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 周报弹窗 -->
   <div id="reportModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-auto">
@@ -201,6 +255,7 @@
     const STORAGE_KEY = 'caseManagementData';
     let cases = [];
     let editingId = null;
+    let detailId = null;
 
     function loadData() {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -217,7 +272,15 @@
     }
 
     function formatDate(dateStr) {
+      if (!dateStr) return '-';
       return dateStr.replace(/-/g, '/');
+    }
+
+    function formatDateTime(isoStr) {
+      if (!isoStr) return '-';
+      const d = new Date(isoStr);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
     function getSeverityClass(severity) {
@@ -254,10 +317,6 @@
       return c.deadline && c.deadline < getTodayStr() && !['resolved', 'closed'].includes(c.status);
     }
 
-    function isDueToday(c) {
-      return c.deadline === getTodayStr() && !['resolved', 'closed'].includes(c.status);
-    }
-
     function getTodayStr() {
       return new Date().toISOString().split('T')[0];
     }
@@ -277,12 +336,10 @@
     function updateStats() {
       document.getElementById('statTotal').textContent = cases.length;
       document.getElementById('statPending').textContent = cases.filter(c => c.status === 'pending').length;
-
       const today = getTodayStr();
       const weekEnd = new Date();
       weekEnd.setDate(weekEnd.getDate() + 7);
       const weekEndStr = weekEnd.toISOString().split('T')[0];
-
       document.getElementById('statCritical').textContent = cases.filter(c => c.severity === 'critical' && !['resolved', 'closed'].includes(c.status)).length;
       document.getElementById('statWeek').textContent = cases.filter(c => c.deadline >= today && c.deadline <= weekEndStr && !['resolved', 'closed'].includes(c.status)).length;
     }
@@ -293,7 +350,6 @@
         return (c.deadline === today || (c.deadline < today && !['resolved', 'closed'].includes(c.status))) &&
                (c.severity === 'critical' || c.severity === 'high');
       });
-
       if (urgent.length > 0) {
         document.getElementById('alertCount').textContent = urgent.length;
         document.getElementById('alertBanner').classList.remove('hidden');
@@ -313,15 +369,13 @@
     }
 
     function toggleAlertList() {
-      const list = document.getElementById('alertList');
-      list.classList.toggle('hidden');
+      document.getElementById('alertList').classList.toggle('hidden');
     }
 
     function renderList() {
       const statusFilter = document.getElementById('filterStatus').value;
       const severityFilter = document.getElementById('filterSeverity').value;
       const assigneeFilter = document.getElementById('filterAssignee').value;
-
       const filtered = cases.filter(c => {
         if (statusFilter && c.status !== statusFilter) return false;
         if (severityFilter && c.severity !== severityFilter) return false;
@@ -331,17 +385,17 @@
 
       const listEl = document.getElementById('caseList');
       const emptyEl = document.getElementById('emptyState');
-
       if (filtered.length === 0) {
         listEl.classList.add('hidden');
         emptyEl.classList.remove('hidden');
         return;
       }
-
       emptyEl.classList.add('hidden');
       listEl.classList.remove('hidden');
-      listEl.innerHTML = filtered.map(c => `
-        <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition ${isOverdue(c) ? 'border-l-4 border-red-500' : ''}">
+      listEl.innerHTML = filtered.map(c => {
+        const lastLog = c.logs && c.logs.length > 0 ? c.logs[c.logs.length - 1] : null;
+        return `
+        <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer ${isOverdue(c) ? 'border-l-4 border-red-500' : ''}" onclick="openDetail('${c.id}')">
           <div class="flex items-start justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-2 mb-2">
@@ -353,16 +407,17 @@
                 <span>📋 ${c.type}</span>
                 <span>👤 ${c.assignee}</span>
                 <span>📅 ${formatDate(c.deadline)}</span>
+                <span>📝 ${c.logs ? c.logs.length : 0} 条跟进</span>
               </div>
-              ${c.remark ? `<div class="mt-2 text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">${c.remark}</div>` : ''}
+              ${lastLog ? `<div class="mt-2 text-sm text-blue-600 bg-blue-50 rounded px-3 py-2 truncate">💬 ${lastLog.content}</div>` : ''}
             </div>
-            <div class="flex gap-2 ml-4">
+            <div class="flex gap-2 ml-4" onclick="event.stopPropagation()">
               <button onclick="editCase('${c.id}')" class="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded">编辑</button>
               <button onclick="deleteCase('${c.id}')" class="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded">删除</button>
             </div>
           </div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
 
     function resetFilters() {
@@ -372,12 +427,93 @@
       renderList();
     }
 
+    function openDetail(id) {
+      detailId = id;
+      const c = cases.find(x => x.id === id);
+      if (!c) return;
+
+      document.getElementById('detailTitle').textContent = c.customer;
+      document.getElementById('detailMeta').textContent = `${c.type} · ${getSeverityLabel(c.severity)}`;
+
+      document.getElementById('detailInfo').innerHTML = `
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-gray-400 text-xs mb-1">状态</div>
+            <span class="text-xs px-2 py-0.5 rounded ${getStatusClass(c.status)}">${getStatusLabel(c.status)}</span>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-gray-400 text-xs mb-1">跟进人</div>
+            <div class="font-medium">${c.assignee}</div>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-gray-400 text-xs mb-1">解决期限</div>
+            <div class="font-medium ${isOverdue(c) ? 'text-red-600' : ''}">${formatDate(c.deadline)}</div>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-gray-400 text-xs mb-1">严重程度</div>
+            <span class="text-xs px-2 py-0.5 rounded border ${getSeverityClass(c.severity)}">${getSeverityLabel(c.severity)}</span>
+          </div>
+        </div>
+        ${c.remark ? `<div class="mt-3 bg-yellow-50 rounded-lg p-3 text-sm text-gray-700"><strong>备注：</strong>${c.remark}</div>` : ''}
+        <div class="mt-3 text-xs text-gray-400">创建于 ${formatDateTime(c.createdAt)} · 最后更新 ${formatDateTime(c.updatedAt)}</div>
+      `;
+
+      const logs = c.logs || [];
+      document.getElementById('logCount').textContent = `共 ${logs.length} 条`;
+      if (logs.length === 0) {
+        document.getElementById('logList').innerHTML = '';
+        document.getElementById('logEmpty').classList.remove('hidden');
+      } else {
+        document.getElementById('logEmpty').classList.add('hidden');
+        document.getElementById('logList').innerHTML = logs.map(log => `
+          <div class="flex gap-3 relative">
+            <div class="timeline-dot mt-1.5"></div>
+            <div class="flex-1 pb-4">
+              <div class="text-xs text-gray-400 mb-1">${formatDateTime(log.createdAt)} · <span class="text-blue-600">${log.author}</span></div>
+              <div class="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">${log.content}</div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      document.getElementById('detailSidebar').classList.remove('hidden');
+      document.getElementById('newLogContent').value = '';
+    }
+
+    function closeDetail() {
+      document.getElementById('detailSidebar').classList.add('hidden');
+      detailId = null;
+    }
+
+    function submitLog() {
+      const content = document.getElementById('newLogContent').value.trim();
+      if (!content) {
+        alert('请输入跟进内容');
+        return;
+      }
+      if (!detailId) return;
+      const c = cases.find(x => x.id === detailId);
+      if (!c) return;
+
+      if (!c.logs) c.logs = [];
+      c.logs.push({
+        id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+        author: c.assignee,
+        content,
+        createdAt: new Date().toISOString()
+      });
+      c.updatedAt = new Date().toISOString();
+      saveData();
+      renderList();
+      updateStats();
+      openDetail(detailId);
+    }
+
     function openForm(id = null) {
       editingId = id;
       document.getElementById('formTitle').textContent = id ? '编辑客诉' : '新建客诉';
       document.getElementById('caseForm').reset();
       document.getElementById('caseId').value = '';
-
       if (id) {
         const c = cases.find(x => x.id === id);
         if (c) {
@@ -391,7 +527,6 @@
           document.getElementById('remark').value = c.remark || '';
         }
       }
-
       document.getElementById('formModal').classList.remove('hidden');
       document.getElementById('formModal').classList.add('flex');
     }
@@ -419,7 +554,6 @@
       e.preventDefault();
       const id = document.getElementById('caseId').value;
       const now = new Date().toISOString();
-
       const data = {
         customer: document.getElementById('customer').value,
         assignee: document.getElementById('assignee').value,
@@ -430,7 +564,6 @@
         remark: document.getElementById('remark').value,
         updatedAt: now
       };
-
       if (id) {
         const idx = cases.findIndex(c => c.id === id);
         if (idx !== -1) {
@@ -440,10 +573,10 @@
         cases.unshift({
           id: 'case_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
           createdAt: now,
+          logs: [],
           ...data
         });
       }
-
       saveData();
       closeForm();
       renderList();
@@ -456,7 +589,6 @@
         const created = c.createdAt.split('T')[0];
         return created >= start && created <= end;
       });
-
       const total = weekCases.length;
       const resolved = weekCases.filter(c => c.status === 'resolved' || c.status === 'closed').length;
       const bySeverity = {
@@ -469,10 +601,8 @@
       ['张伟', '李娜', '王强'].forEach(name => {
         byAssignee[name] = weekCases.filter(c => c.assignee === name).length;
       });
-
       const today = new Date();
       const reportDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
-
       document.getElementById('reportData').innerHTML = `
         <div class="space-y-6">
           <div class="text-center border-b pb-4">
@@ -480,7 +610,6 @@
             <p class="text-gray-500 mt-1">统计周期：${formatDate(start)} 至 ${formatDate(end)}</p>
             <p class="text-gray-400 text-sm">生成时间：${reportDate}</p>
           </div>
-
           <div class="grid grid-cols-3 gap-4">
             <div class="bg-blue-50 rounded-xl p-4 text-center">
               <div class="text-4xl font-bold text-blue-600">${total}</div>
@@ -495,7 +624,6 @@
               <div class="text-sm text-gray-500 mt-1">处理中</div>
             </div>
           </div>
-
           <div>
             <h4 class="font-bold text-gray-800 mb-3">严重程度分布</h4>
             <div class="grid grid-cols-4 gap-3">
@@ -517,7 +645,6 @@
               </div>
             </div>
           </div>
-
           <div>
             <h4 class="font-bold text-gray-800 mb-3">跟进人工作量</h4>
             <div class="grid grid-cols-3 gap-3">
@@ -535,7 +662,6 @@
               </div>
             </div>
           </div>
-
           ${weekCases.length > 0 ? `
           <div>
             <h4 class="font-bold text-gray-800 mb-3">本周客诉详情</h4>
@@ -563,9 +689,7 @@
             </table>
           </div>
           ` : '<div class="text-center text-gray-400 py-8">本周暂无新增客诉</div>'}
-        </div>
-      `;
-
+        </div>`;
       document.getElementById('reportModal').classList.remove('hidden');
       document.getElementById('reportModal').classList.add('flex');
     }
@@ -580,11 +704,7 @@
     renderList();
     updateStats();
     checkTodayAlerts();
-
-    // 每小时检测一次提醒
     setInterval(checkTodayAlerts, 3600000);
-
-    // 请求通知权限
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
